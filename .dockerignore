@@ -1,0 +1,11 @@
+.git
+.gitignore
+__pycache__/
+*.obj
+*.exe
+*.log
+.tempmediaStorage/
+scratch/
+test_*.py
+find_api.py
+inspect_headers.py

@@ -1,0 +1,16 @@
+# Compiled Binaries & Object Files
+*.exe
+*.obj
+*.pdb
+*.ilk
+
+# Python Cache & Logs
+__pycache__/
+*.pyc
+*.log
+
+# System & OS Files
+.DS_Store
+Thumbs.db
+.system_generated/
+scratch_*.py
