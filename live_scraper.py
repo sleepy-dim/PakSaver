@@ -109,29 +109,65 @@ def clean_bank_name(provider):
         return "JS Bank"
     return p
 
-def format_card_name(bank_name, card_raw):
-    card = " ".join(card_raw.split()).strip()
-    b_lower = bank_name.lower()
-    c_lower = card.lower()
-    if c_lower.startswith(b_lower):
-        return card
-    if "faysal" in b_lower and "faysal" in c_lower:
-        return card
-    if "hbl" in b_lower and ("hbl" in c_lower or "habib" in c_lower):
-        return card
-    if "askari" in b_lower and "askari" in c_lower:
-        return card
-    if "meezan" in b_lower and "meezan" in c_lower:
-        return card
-    if "al habib" in b_lower and "al habib" in c_lower:
-        return card
-    if "punjab" in b_lower and "punjab" in c_lower:
-        return card
-    if "mcb" in b_lower and "mcb" in c_lower:
-        return card
-    if "alfalah" in b_lower and "alfalah" in c_lower:
-        return card
-    return f"{bank_name} {card}"
+def combine_card_names(bank_name, card_names):
+    """
+    Unifies qualifying card variants for the same discount tier.
+    E.g. if 15% applies to both Visa Platinum Debit and Credit, they are combined into:
+    'Allied Bank Visa Platinum Debit & Credit Cards'.
+    """
+    if not card_names:
+        return f"{bank_name} All Cards"
+
+    cleaned = []
+    seen = set()
+    for c in card_names:
+        name = " ".join(str(c).split()).strip()
+        if name.lower() not in seen:
+            seen.add(name.lower())
+            cleaned.append(name)
+
+    if len(cleaned) == 1:
+        c = cleaned[0]
+        if bank_name.lower() in c.lower():
+            return c
+        return f"{bank_name} {c}"
+
+    if len(cleaned) == 2:
+        c1, c2 = cleaned[0], cleaned[1]
+        base1 = c1.replace("Debit Card", "").replace("Credit Card", "").replace("Debit", "").replace("Credit", "").strip()
+        base2 = c2.replace("Debit Card", "").replace("Credit Card", "").replace("Debit", "").replace("Credit", "").strip()
+        if base1.lower() == base2.lower():
+            tier = base1
+            if bank_name.lower() not in tier.lower():
+                tier = f"{bank_name} {tier}"
+            return f"{tier} Debit & Credit Cards".strip()
+
+        if "classic" in c1.lower() and "classic" in c2.lower():
+            prefix = bank_name if bank_name.lower() not in c1.lower() else ""
+            return f"{prefix} Classic Visa & Mastercard Debit Cards".strip()
+
+    all_str = " ".join(cleaned).lower()
+    tiers = []
+    for t in ["Infinite", "World", "Signature", "Platinum", "Titanium", "Gold", "Silver", "Classic", "PayPak", "UnionPay"]:
+        if t.lower() in all_str and t not in tiers:
+            tiers.append(t)
+
+    if tiers:
+        if len(tiers) == 1:
+            tier_str = tiers[0]
+        elif len(tiers) == 2:
+            tier_str = f"{tiers[0]} & {tiers[1]}"
+        else:
+            tier_str = f"{', '.join(tiers[:-1])} & {tiers[-1]}"
+
+        has_debit = "debit" in all_str
+        has_credit = "credit" in all_str
+        card_type = "Debit & Credit Cards" if (has_debit and has_credit) else ("Debit Cards" if has_debit else "Cards")
+        prefix = bank_name if bank_name.lower() not in tier_str.lower() else ""
+        return f"{prefix} {tier_str} {card_type}".strip()
+
+    short_names = [c.replace(bank_name, "").strip() for c in cleaned[:2]]
+    return f"{bank_name} {' & '.join(short_names)}".strip()
 
 def classify_category(merchant, keywords, title, desc):
     text = f"{merchant} {' '.join(str(k) for k in keywords) if isinstance(keywords, list) else ''} {title} {desc}".lower()
@@ -214,7 +250,7 @@ def extract_deal_rows(deal, default_city=None):
     p_lower = provider.lower()
     provider_type = "Digital Wallet" if any(w in p_lower for w in ["jazzcash", "easypaisa", "sadapay", "nayapay", "wallet"]) else "Bank"
 
-    # Extract Specific Qualifying Cards from Associations
+    # Extract & Unify Qualifying Cards for this Deal Tier
     assocs = deal.get("associations")
     card_names = []
     if isinstance(assocs, list):
@@ -224,16 +260,7 @@ def extract_deal_rows(deal, default_city=None):
                 if len(cname) > 3:
                     card_names.append(cname)
 
-    if card_names:
-        seen_cards = set()
-        formatted_cards = []
-        for c in card_names:
-            fmt = format_card_name(provider, c)
-            if fmt.lower() not in seen_cards:
-                seen_cards.add(fmt.lower())
-                formatted_cards.append(fmt)
-    else:
-        formatted_cards = [f"{provider} All Cards"]
+    unified_card_tier = combine_card_names(provider, card_names)
 
     max_cap = extract_cap(desc)
     min_spend = 0
@@ -273,20 +300,19 @@ def extract_deal_rows(deal, default_city=None):
 
     rows = []
     for city in matched_cities:
-        for card_tier in formatted_cards:
-            rows.append([
-                merchant,
-                category,
-                city,
-                provider,
-                provider_type,
-                card_tier,
-                discount_pct,
-                max_cap,
-                min_spend,
-                valid_days,
-                clean_terms
-            ])
+        rows.append([
+            merchant,
+            category,
+            city,
+            provider,
+            provider_type,
+            unified_card_tier,
+            discount_pct,
+            max_cap,
+            min_spend,
+            valid_days,
+            clean_terms
+        ])
     return rows
 
 def fetch_api_page(city, offset, limit=500):
