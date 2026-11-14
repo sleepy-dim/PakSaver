@@ -153,7 +153,12 @@ def combine_card_names(bank_name, card_names):
 
     all_str = " ".join(cleaned).lower()
     tiers = []
-    for t in ["Infinite", "World", "Signature", "Platinum", "Titanium", "Gold", "Silver", "Classic", "PayPak", "UnionPay"]:
+    recognized_tiers = [
+        "Infinite", "World", "Signature", "Platinum", "Titanium", 
+        "Gold", "Silver", "Classic", "PayPak", "UnionPay",
+        "Corporate", "Business", "Student", "Niswan", "Sahar", "Charge Card"
+    ]
+    for t in recognized_tiers:
         if t.lower() in all_str and t not in tiers:
             tiers.append(t)
 
@@ -175,43 +180,19 @@ def combine_card_names(bank_name, card_names):
     return f"{bank_name} {' & '.join(short_names)}".strip()
 
 def classify_category(merchant, keywords, title, desc):
-    """Accurately categorizes merchant into clear user-facing domain categories."""
+    """Classifies merchant into Food & Dining or Other."""
     text = f"{merchant} {' '.join(str(k) for k in keywords) if isinstance(keywords, list) else ''} {title} {desc}".lower()
-    if any(w in text for w in [
-        "lab", "clinic", "diagnostic", "hospital", "dental", "pharma", "pharmacy",
-        "doctor", "aesthetic", "skin", "health", "optical", "eye care", "medical",
-        "chughtai", "shaukat khanum", "aga khan", "essa", "idc", "dentist",
-        "consultation", "root canal", "scaling", "polishing", "physio"
-    ]):
-        return "Health & Wellness"
     if any(w in text for w in [
         "cafe", "coffee", "restaurant", "pizza", "burger", "grill", "bbq", "karahi",
         "biryani", "dining", "bakery", "bakers", "sweets", "gelato", "dessert",
         "kitchen", "food", "bar.b.q", "cuisine", "bites", "steak", "fast food",
         "tea", "chai", "roastery", "shawarma", "kabab", "kababjees", "dhabba",
-        "takeaway", "dine-in", "crust", "fries", "broast", "ice cream", "donut", "waffle"
+        "takeaway", "dine-in", "crust", "fries", "broast", "ice cream", "donut", "waffle",
+        "eatery", "diner", "bar", "brew", "wings", "tacos", "sushi", "naan", "roti",
+        "haleem", "nihari", "paye", "tikka", "pulao", "qorma", "paratha", "lassi"
     ]):
         return "Food & Dining"
-    if any(w in text for w in [
-        "cloth", "apparel", "fashion", "shoes", "pret", "textile", "jewel", "jewelry",
-        "gold jewelry", "watch", "bags", "couture", "boutique", "fabrics", "retail",
-        "mart", "store", "supermarket", "grocer", "perfume", "fragrance", "leather"
-    ]):
-        return "Fashion & Retail"
-    if any(w in text for w in [
-        "hotel", "resort", "inn", "suites", "travel", "tour", "airline", "stay",
-        "room booking", "rack rate"
-    ]):
-        return "Travel & Hospitality"
-    if any(w in text for w in [
-        "petroleum", "attock", "pso", "total parco", "lubricant", "fuel", "tyre", "auto", "car care"
-    ]):
-        return "Automotive & Fuel"
-    if any(w in text for w in [
-        "salon", "spa", "grooming", "beauty", "makeover", "hair", "nail", "barber"
-    ]):
-        return "Salon & Grooming"
-    return "Lifestyle & Entertainment"
+    return "Other"
 
 def extract_cap(text):
     for p in CAP_PATTERNS:
@@ -264,17 +245,27 @@ def extract_deal_rows(deal, default_city=None):
     p_lower = provider.lower()
     provider_type = "Digital Wallet" if any(w in p_lower for w in ["jazzcash", "easypaisa", "sadapay", "nayapay", "wallet"]) else "Bank"
 
-    # 2. Extract & Unify Qualifying Cards for this Deal Tier
+    # 2. Extract Individual Qualifying Cards (Each Card Gets Its Own Dedicated Node)
     assocs = deal.get("associations")
     card_names = []
-    if isinstance(assocs, list):
+    if isinstance(assocs, list) and len(assocs) > 0:
         for a in assocs:
             if isinstance(a, dict) and a.get("name"):
-                cname = str(a.get("name")).strip()
-                if len(cname) > 3:
+                cname = " ".join(str(a.get("name")).split()).replace(",", " ").strip()
+                if len(cname) > 2:
+                    if provider.lower() not in cname.lower():
+                        cname = f"{provider} {cname}"
                     card_names.append(cname)
 
-    unified_card_tier = combine_card_names(provider, card_names)
+    clean_cards = []
+    seen_c = set()
+    for c in card_names:
+        if c.lower() not in seen_c:
+            seen_c.add(c.lower())
+            clean_cards.append(c)
+
+    if not clean_cards:
+        clean_cards = [f"{provider} All Cards"]
 
     # 3. Dynamic Max Cap & Min Spend (PKR)
     max_cap = extract_cap(desc)
@@ -319,19 +310,20 @@ def extract_deal_rows(deal, default_city=None):
 
     rows = []
     for city in matched_cities:
-        rows.append([
-            merchant,
-            category,
-            city,
-            provider,
-            provider_type,
-            unified_card_tier,
-            discount_pct,
-            max_cap,
-            min_spend,
-            valid_days,
-            clean_terms
-        ])
+        for card in clean_cards:
+            rows.append([
+                merchant,
+                category,
+                city,
+                provider,
+                provider_type,
+                card,
+                discount_pct,
+                max_cap,
+                min_spend,
+                valid_days,
+                clean_terms
+            ])
     return rows
 
 def fetch_api_page(city, offset, limit=500):

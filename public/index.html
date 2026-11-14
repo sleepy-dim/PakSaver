@@ -288,7 +288,9 @@
 
     <script>
         const API_URL = "/api/restaurants";
-        let masterRestaurants = [];
+        let allKnownCities = [];
+        let allInitialRestaurants = [];
+        let currentFilteredRestaurants = [];
         let currentModalRestaurant = null;
         let debounceTimer = null;
 
@@ -300,10 +302,12 @@
                 const res = await fetch(API_URL);
                 if (!res.ok) throw new Error("Server responded with " + res.status);
                 const payload = await res.json();
-                masterRestaurants = payload.restaurants || [];
+                allInitialRestaurants = payload.restaurants || [];
+                currentFilteredRestaurants = allInitialRestaurants;
+                allKnownCities = [...new Set(allInitialRestaurants.map(r => r.city))].sort();
                 updateTelemetry(payload);
-                populateInitialDropdowns(masterRestaurants);
-                renderRestaurants(masterRestaurants);
+                populateInitialDropdowns(allInitialRestaurants);
+                renderRestaurants(allInitialRestaurants);
             } catch (err) {
                 console.error("Failed to load data:", err);
                 showToast("Failed to connect to C++ backend on :8080", "error");
@@ -352,17 +356,18 @@
             provSelect.innerHTML = '<option value="All">All Banks & Wallets</option>' +
                 [...providers].sort().map(p => `<option value="${p}">${p}</option>`).join('');
 
-            renderCityChips([...cities].sort());
+            renderCityChips(allKnownCities);
             syncDependentDropdowns();
         }
 
-        function renderCityChips(cityList) {
+        function renderCityChips(cityList = allKnownCities) {
             const container = document.getElementById('cityChips');
             const currentCity = document.getElementById('cityFilter').value;
 
             const allPill = `<button onclick="selectCity('All')" class="px-2.5 py-1 rounded-lg font-mono text-[11px] transition whitespace-nowrap ${currentCity === 'All' ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/20' : 'bg-slate-950 text-slate-300 hover:text-white border border-slate-800 hover:border-slate-700'}">All Cities</button>`;
 
-            const cityPills = cityList.map(c =>
+            const listToRender = (cityList && cityList.length > 0) ? cityList : allKnownCities;
+            const cityPills = listToRender.map(c =>
                 `<button onclick="selectCity('${c}')" class="px-2.5 py-1 rounded-lg font-mono text-[11px] transition whitespace-nowrap ${currentCity === c ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/20' : 'bg-slate-950 text-slate-300 hover:text-white border border-slate-800 hover:border-slate-700'}">${c}</button>`
             ).join('');
 
@@ -371,7 +376,7 @@
 
         function selectCity(city) {
             document.getElementById('cityFilter').value = city;
-            renderCityChips([...new Set(masterRestaurants.map(r => r.city))].sort());
+            renderCityChips(allKnownCities);
             syncDependentDropdowns();
             runQuery();
         }
@@ -385,18 +390,53 @@
             const cards = new Set();
             const rests = new Set();
 
-            masterRestaurants.forEach(r => {
+            allInitialRestaurants.forEach(r => {
                 if (city !== "All" && r.city !== city) return;
                 rests.add(r.restaurant);
                 r.deals.forEach(d => {
-                    if (prov === "All" || d.provider === prov) cards.add(d.card_tier);
+                    if (prov === "All" || d.provider === prov) {
+                        // d.cards is now an array of card names
+                        (d.cards || []).forEach(c => cards.add(c));
+                    }
                 });
             });
 
+            const standardTiers = [
+                { id: "Infinite", label: "💎 Infinite Cards (Visa Infinite)" },
+                { id: "World", label: "🌍 World & World Elite Cards" },
+                { id: "Signature", label: "✍️ Signature Cards (Visa Signature)" },
+                { id: "Platinum", label: "✨ Platinum Cards (Debit & Credit)" },
+                { id: "Titanium", label: "🛡️ Titanium Cards" },
+                { id: "Gold", label: "🥇 Gold Cards" },
+                { id: "Classic", label: "💳 Classic / Standard Cards" },
+                { id: "PayPak", label: "🇵🇰 PayPak Domestic Cards" },
+                { id: "UnionPay", label: "🌐 UnionPay Cards" },
+                { id: "Corporate", label: "💼 Corporate & Business Cards" },
+                { id: "Student", label: "🎓 Student & Youth Cards" },
+                { id: "Niswan", label: "🌸 Women's Banking (Niswan / Sahar)" },
+                { id: "Credit", label: "💳 Credit Cards (All Tiers)" },
+                { id: "Debit", label: "🏧 Debit Cards (All Tiers)" }
+            ];
+
             const cardSel = document.getElementById('cardFilter');
-            cardSel.innerHTML = '<option value="All">All Cards & QR</option>' +
-                [...cards].sort().map(c => `<option value="${c}">${c}</option>`).join('');
-            if ([...cards].includes(currentCard)) cardSel.value = currentCard;
+            let cardOptionsHtml = '<option value="All">All Cards & QR</option>';
+            
+            cardOptionsHtml += '<optgroup label="── Standard Card Tiers (Universal) ──">';
+            standardTiers.forEach(tier => {
+                cardOptionsHtml += `<option value="${tier.id}">${tier.label}</option>`;
+            });
+            cardOptionsHtml += '</optgroup>';
+
+            if (cards.size > 0) {
+                cardOptionsHtml += '<optgroup label="── Specific Card Packages (' + cards.size + ') ──">';
+                [...cards].sort().forEach(c => {
+                    cardOptionsHtml += `<option value="${c}">${c}</option>`;
+                });
+                cardOptionsHtml += '</optgroup>';
+            }
+
+            cardSel.innerHTML = cardOptionsHtml;
+            if (currentCard) cardSel.value = currentCard;
 
             const restSel = document.getElementById('restaurantFilter');
             restSel.innerHTML = '<option value="All">All Restaurants</option>' +
@@ -420,12 +460,14 @@
             const params = new URLSearchParams({ city, provider, card, restaurant, q, min_pct });
             try {
                 const res = await fetch(`${API_URL}?${params.toString()}`);
+                if (!res.ok) throw new Error("HTTP " + res.status);
                 const payload = await res.json();
-                masterRestaurants = payload.restaurants || [];
+                currentFilteredRestaurants = payload.restaurants || [];
                 updateTelemetry(payload);
                 renderRestaurants(payload.restaurants);
             } catch (e) {
                 console.error("Query failed:", e);
+                showToast("Failed to reach C++ server. Is server running on port 8080?", "error");
             }
         }
 
@@ -442,13 +484,14 @@
             document.getElementById('keywordInput').value = "";
             document.getElementById('minPctSlider').value = "0";
             document.getElementById('minPctLabel').textContent = "0% or higher";
-            renderCityChips([...new Set(masterRestaurants.map(r => r.city))].sort());
+            renderCityChips(allKnownCities);
             syncDependentDropdowns();
             runQuery();
         }
 
         // =====================================================================
         // RESTAURANT CARD RENDERING
+        // Groups duplicate restaurant names across cities when no city filter
         // =====================================================================
         function renderRestaurants(restaurants) {
             const grid = document.getElementById('restaurantsGrid');
@@ -471,8 +514,39 @@
                 return;
             }
 
-            grid.innerHTML = restaurants.map((r) => {
+            const cityFilterVal = document.getElementById('cityFilter').value;
+            const isAllCities = (cityFilterVal === 'All' || !cityFilterVal);
+
+            // When no specific city is selected, group same-name restaurants across cities
+            let displayList = restaurants;
+            if (isAllCities) {
+                const grouped = new Map();
+                restaurants.forEach(r => {
+                    const key = r.restaurant + '||' + r.category;
+                    if (!grouped.has(key)) {
+                        grouped.set(key, { ...r, cities: [r.city], allEntries: [r] });
+                    } else {
+                        const g = grouped.get(key);
+                        if (!g.cities.includes(r.city)) g.cities.push(r.city);
+                        g.allEntries.push(r);
+                        // Merge deals and keep highest discount
+                        if (r.max_discount > g.max_discount) g.max_discount = r.max_discount;
+                        g.deal_count += r.deal_count;
+                        g.deals = [...g.deals, ...r.deals];
+                    }
+                });
+                displayList = [...grouped.values()];
+            }
+
+            grid.innerHTML = displayList.map((r) => {
                 const uniqueProviders = [...new Set(r.deals.map(d => d.provider))];
+                const cityDisplay = isAllCities && r.cities && r.cities.length > 1
+                    ? `<span class="text-xs px-2.5 py-1 rounded-full bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold tracking-wide">
+                           🏙 ${r.cities.length} Cities
+                       </span>`
+                    : `<span class="text-xs px-2.5 py-1 rounded-full bg-slate-950 text-emerald-400 border border-emerald-900/60 font-semibold tracking-wide">
+                           📍 ${r.city || (r.cities && r.cities[0])}
+                       </span>`;
                 return `
                 <div onclick='openRestaurantModal(${JSON.stringify(r).replace(/'/g, "&#39;")})'
                      class="group glow-card bg-slate-900/90 hover:bg-slate-800/80 transition-all duration-200 cursor-pointer rounded-2xl p-6 border border-slate-800/80 hover:border-emerald-500/60 flex flex-col justify-between shadow-lg relative overflow-hidden">
@@ -481,15 +555,16 @@
 
                     <div>
                         <div class="flex justify-between items-center gap-2">
-                            <span class="text-xs px-2.5 py-1 rounded-full bg-slate-950 text-emerald-400 border border-emerald-900/60 font-semibold tracking-wide">
-                                📍 ${r.city}
-                            </span>
+                            ${cityDisplay}
                             <span class="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-sm">
                                 BST Key: ${r.max_discount}% OFF
                             </span>
                         </div>
                         <h2 class="text-xl font-bold text-white mt-3 group-hover:text-emerald-300 transition duration-150">${r.restaurant}</h2>
                         <p class="text-xs text-slate-400 mt-0.5">${r.category}</p>
+                        ${isAllCities && r.cities && r.cities.length > 1
+                            ? `<p class="text-[10px] text-indigo-400 mt-0.5 font-mono">${r.cities.slice(0,4).join(' · ')}${r.cities.length > 4 ? ' +' + (r.cities.length - 4) + ' more' : ''}</p>`
+                            : ''}
                         <div class="mt-4 flex flex-wrap gap-1.5">
                             ${uniqueProviders.map(p => `
                                 <span class="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-950/80 text-slate-300 border border-slate-700/60">${p}</span>
@@ -498,7 +573,7 @@
                     </div>
                     <div class="mt-6 pt-3 border-t border-slate-800/80 flex justify-between items-center text-xs text-emerald-400 font-semibold">
                         <span class="text-slate-400 font-normal">
-                            <strong class="text-white font-mono">${r.deal_count}</strong> CardDealNode(s)
+                            <strong class="text-white font-mono">${r.deal_count}</strong> Deal Group(s)
                         </span>
                         <span class="group-hover:translate-x-1 transition duration-150 flex items-center gap-1">
                             Calculate Caps &rarr;
@@ -552,7 +627,8 @@
                                     ${d.provider_type}
                                 </span>
                             </div>
-                            <p class="text-sm text-emerald-400 font-semibold mt-0.5">${d.card_tier}</p>
+                            <p class="text-sm text-emerald-400 font-semibold mt-0.5">${(d.cards || [d.card_tier]).join(' · ')}</p>
+                            ${d.cards && d.cards.length > 1 ? `<div class="flex flex-wrap gap-1 mt-1.5">${d.cards.map(c => `<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 font-mono">${c}</span>`).join('')}</div>` : ''}
                         </div>
                         <div class="text-left sm:text-right">
                             <span class="text-2xl font-black bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">${d.discount_pct}% OFF</span>
@@ -649,7 +725,7 @@
         // =====================================================================
         // EVENT LISTENERS
         // =====================================================================
-        document.getElementById('cityFilter').addEventListener('change', () => { syncDependentDropdowns(); runQuery(); });
+        document.getElementById('cityFilter').addEventListener('change', () => { renderCityChips(allKnownCities); syncDependentDropdowns(); runQuery(); });
         document.getElementById('providerFilter').addEventListener('change', () => { syncDependentDropdowns(); runQuery(); });
         document.getElementById('cardFilter').addEventListener('change', runQuery);
         document.getElementById('restaurantFilter').addEventListener('change', runQuery);

@@ -5,24 +5,28 @@
 #include <cctype>
 #include <cstdlib>
 #include <algorithm>
+#include <vector>
+#include <map>
 #include "httplib.h"
+
+using namespace std;
 
 // ============================================================================
 // DATA STRUCTURE 1: Singly Linked List for Card Discounts (CardDealNode)
 // ============================================================================
 struct CardDealNode {
-    std::string provider;       // HBL, Meezan, JazzCash, Easypaisa, etc.
-    std::string providerType;   // "Bank" or "Digital Wallet"
-    std::string cardTier;       // e.g., "Visa Platinum", "World Debit"
+    string provider;       // HBL, Meezan, JazzCash, Easypaisa, etc.
+    string providerType;   // "Bank" or "Digital Wallet"
+    string cardTier;       // e.g., "Visa Platinum", "World Debit"
     int discountPct;
     int maxCapPKR;
     int minSpendPKR;
-    std::string validDays;
-    std::string terms;
+    string validDays;
+    string terms;
     CardDealNode* next;
 
-    CardDealNode(std::string prov, std::string pType, std::string tier,
-                 int pct, int cap, int minSp, std::string days, std::string trms)
+    CardDealNode(string prov, string pType, string tier,
+                 int pct, int cap, int minSp, string days, string trms)
         : provider(prov), providerType(pType), cardTier(tier),
           discountPct(pct), maxCapPKR(cap), minSpendPKR(minSp),
           validDays(days), terms(trms), next(nullptr) {}
@@ -30,17 +34,17 @@ struct CardDealNode {
 
 // Restaurant Entity (Also acts as a Chaining Node inside the Hash Table)
 struct RestaurantNode {
-    std::string name;
-    std::string category;
-    std::string city;
+    string name;
+    string category;
+    string city;
     CardDealNode* dealsHead;    // Head pointer to Singly Linked List of deals
     RestaurantNode* nextInBucket;
 
-    RestaurantNode(std::string n, std::string cat, std::string c)
+    RestaurantNode(string n, string cat, string c)
         : name(n), category(cat), city(c), dealsHead(nullptr), nextInBucket(nullptr) {}
 
-    void addCardDeal(std::string prov, std::string pType, std::string tier,
-                     int pct, int cap, int minSp, std::string days, std::string trms) {
+    void addCardDeal(string prov, string pType, string tier,
+                     int pct, int cap, int minSp, string days, string trms) {
         CardDealNode* newNode = new CardDealNode(prov, pType, tier, pct, cap, minSp, days, trms);
         newNode->next = dealsHead;
         dealsHead = newNode;
@@ -62,11 +66,11 @@ struct RestaurantNode {
 // ============================================================================
 struct BSTNode {
     int maxDiscountKey;
-    std::string jsonPayload;
+    string jsonPayload;
     BSTNode* left;
     BSTNode* right;
 
-    BSTNode(int key, const std::string& payload)
+    BSTNode(int key, const string& payload)
         : maxDiscountKey(key), jsonPayload(payload), left(nullptr), right(nullptr) {}
 };
 
@@ -74,7 +78,7 @@ class DiscountBST {
 private:
     BSTNode* root;
 
-    BSTNode* insertRec(BSTNode* node, int key, const std::string& payload) {
+    BSTNode* insertRec(BSTNode* node, int key, const string& payload) {
         if (node == nullptr) return new BSTNode(key, payload);
         // Duplicate keys go to the right subtree so stable ordering is preserved
         if (key < node->maxDiscountKey)
@@ -85,7 +89,7 @@ private:
     }
 
     // Reverse In-Order (Right -> Root -> Left) with BST Range Pruning!
-    void rangeSearchHighToLow(BSTNode* node, int minDiscountPct, std::ostringstream& out, bool& first) const {
+    void rangeSearchHighToLow(BSTNode* node, int minDiscountPct, ostringstream& out, bool& first) const {
         if (node == nullptr) return;
 
         // Always visit right subtree (higher discounts)
@@ -115,12 +119,12 @@ public:
     DiscountBST() : root(nullptr) {}
     ~DiscountBST() { destroyRec(root); }
 
-    void insert(int maxDiscountKey, const std::string& jsonPayload) {
+    void insert(int maxDiscountKey, const string& jsonPayload) {
         root = insertRec(root, maxDiscountKey, jsonPayload);
     }
 
-    std::string getSortedJSON(int minDiscountPct) const {
-        std::ostringstream out;
+    string getSortedJSON(int minDiscountPct) const {
+        ostringstream out;
         out << "[";
         bool first = true;
         rangeSearchHighToLow(root, minDiscountPct, out, first);
@@ -135,7 +139,7 @@ public:
 class RecentSearchQueue {
 private:
     static const int CAPACITY = 5;
-    std::string arr[CAPACITY];
+    string arr[CAPACITY];
     int frontIdx;
     int rearIdx;
     int count;
@@ -143,7 +147,7 @@ private:
 public:
     RecentSearchQueue() : frontIdx(0), rearIdx(-1), count(0) {}
 
-    void enqueue(const std::string& searchDesc) {
+    void enqueue(const string& searchDesc) {
         // Avoid pushing identical consecutive searches
         if (count > 0 && arr[rearIdx] == searchDesc) return;
 
@@ -157,8 +161,8 @@ public:
         count++;
     }
 
-    std::string toJSON() const {
-        std::ostringstream out;
+    string toJSON() const {
+        ostringstream out;
         out << "[";
         for (int i = 0; i < count; ++i) {
             // Read from newest (rear) to oldest (front)
@@ -192,26 +196,26 @@ private:
     RecentSearchQueue searchHistory;
 
     // Polynomial Rolling Hash Function: O(L) where L is city name length
-    int hashCity(const std::string& city) const {
+    int hashCity(const string& city) const {
         unsigned long hash = 0;
         for (char c : city) {
-            char lower = std::tolower(static_cast<unsigned char>(c));
+            char lower = tolower(static_cast<unsigned char>(c));
             hash = (hash * 31 + lower) % TABLE_SIZE;
         }
         return static_cast<int>(hash);
     }
 
     // Helper: Case-insensitive substring search (used by Linear Search)
-    bool containsSubstringCI(const std::string& haystack, const std::string& needle) const {
+    bool containsSubstringCI(const string& haystack, const string& needle) const {
         if (needle.empty()) return true;
-        std::string hLower, nLower;
-        for (char c : haystack) hLower += std::tolower(static_cast<unsigned char>(c));
-        for (char c : needle)   nLower += std::tolower(static_cast<unsigned char>(c));
-        return hLower.find(nLower) != std::string::npos;
+        string hLower, nLower;
+        for (char c : haystack) hLower += tolower(static_cast<unsigned char>(c));
+        for (char c : needle)   nLower += tolower(static_cast<unsigned char>(c));
+        return hLower.find(nLower) != string::npos;
     }
 
-    std::string escapeJSON(const std::string& s) const {
-        std::string out;
+    string escapeJSON(const string& s) const {
+        string out;
         for (char c : s) {
             if (c == '"') out += "\\\"";
             else if (c == '\\') out += "\\\\";
@@ -227,20 +231,20 @@ private:
     }
 
     void sortDirectory() {
-        std::sort(sortedDirectory, sortedDirectory + totalRestaurants,
-                  [](RestaurantNode* a, RestaurantNode* b) {
-                      if (!a && !b) return false;
-                      if (!a) return false;
-                      if (!b) return true;
-                      return a->name < b->name;
-                  });
+        sort(sortedDirectory, sortedDirectory + totalRestaurants,
+             [](RestaurantNode* a, RestaurantNode* b) {
+                 if (!a && !b) return false;
+                 if (!a) return false;
+                 if (!b) return true;
+                 return a->name < b->name;
+             });
     }
 
     // ========================================================================
     // SEARCH METHOD 2: Iterative Binary Search on Sorted Pointer Array O(log N)
     // Used when the user picks a specific restaurant name from dropdown!
     // ========================================================================
-    int binarySearchRestaurantFirstIndex(const std::string& targetName, int& comparisonsOut) const {
+    int binarySearchRestaurantFirstIndex(const string& targetName, int& comparisonsOut) const {
         int low = 0;
         int high = totalRestaurants - 1;
         int resultIdx = -1;
@@ -262,66 +266,115 @@ private:
     }
 
     // Serializes a RestaurantNode and its matching CardDealNode linked list into JSON,
-    // then inserts into the DiscountBST keyed by max discount %
+    // Groups cards with identical (provider + discount% + cap + minSpend + validDays) into one deal node.
+    // Then inserts into the DiscountBST keyed by max discount %.
     void evaluateAndInsertIntoBST(RestaurantNode* rNode,
-                                  const std::string& providerFilter,
-                                  const std::string& cardFilter,
-                                  const std::string& keywordSearch,
+                                  const string& providerFilter,
+                                  const string& cardFilter,
+                                  const string& keywordSearch,
                                   DiscountBST& bst,
                                   int& matchedRestaurantsCount) const {
-        std::ostringstream dealsStream;
-        bool firstDeal = true;
-        int dealCount = 0;
-        int highestPct = 0;
 
         // Check if restaurant name or category matches the keyword (Linear Search component)
         bool restMatchesKeyword = containsSubstringCI(rNode->name, keywordSearch) ||
                                   containsSubstringCI(rNode->category, keywordSearch);
 
-        // Traverse Singly Linked List of Card Deals: O(K)
+        // ---- PASS 1: collect matching deals, grouped by (provider|pct|cap|minSpend|days) ----
+        // key   -> "provider|pct|cap|minSpend|days|terms"
+        // value -> list of card names
+        map<string, vector<string>> groupedCards;   // key -> card names
+        // Metadata per group key (we just need one representative node)
+        map<string, CardDealNode*> groupMeta;
+
         CardDealNode* dCurr = rNode->dealsHead;
         while (dCurr != nullptr) {
             bool provMatch = (providerFilter.empty() || providerFilter == "All" || dCurr->provider == providerFilter);
-            bool cardMatch = (cardFilter.empty() || cardFilter == "All" || dCurr->cardTier == cardFilter);
+            bool cardMatch = (cardFilter.empty() || cardFilter == "All" ||
+                              dCurr->cardTier == cardFilter ||
+                              containsSubstringCI(dCurr->cardTier, cardFilter));
             bool dealMatchesKeyword = restMatchesKeyword ||
                                       containsSubstringCI(dCurr->provider, keywordSearch) ||
                                       containsSubstringCI(dCurr->cardTier, keywordSearch);
 
             if (provMatch && cardMatch && dealMatchesKeyword) {
-                if (!firstDeal) dealsStream << ",";
-                firstDeal = false;
-                dealCount++;
-                if (dCurr->discountPct > highestPct) highestPct = dCurr->discountPct;
+                // Build grouping key — same discount terms = same display node
+                string groupKey = dCurr->provider + "|"
+                                + to_string(dCurr->discountPct) + "|"
+                                + to_string(dCurr->maxCapPKR) + "|"
+                                + to_string(dCurr->minSpendPKR) + "|"
+                                + dCurr->validDays;
 
-                dealsStream << "{"
-                            << "\"provider\":\"" << escapeJSON(dCurr->provider) << "\","
-                            << "\"provider_type\":\"" << escapeJSON(dCurr->providerType) << "\","
-                            << "\"card_tier\":\"" << escapeJSON(dCurr->cardTier) << "\","
-                            << "\"discount_pct\":" << dCurr->discountPct << ","
-                            << "\"max_cap_pkr\":" << dCurr->maxCapPKR << ","
-                            << "\"min_spend_pkr\":" << dCurr->minSpendPKR << ","
-                            << "\"valid_days\":\"" << escapeJSON(dCurr->validDays) << "\","
-                            << "\"terms\":\"" << escapeJSON(dCurr->terms) << "\""
-                            << "}";
+                groupedCards[groupKey].push_back(dCurr->cardTier);
+                if (groupMeta.find(groupKey) == groupMeta.end()) {
+                    groupMeta[groupKey] = dCurr;
+                }
             }
             dCurr = dCurr->next;
         }
 
-        if (dealCount > 0) {
-            matchedRestaurantsCount++;
-            std::ostringstream restJSON;
-            restJSON << "{"
-                     << "\"restaurant\":\"" << escapeJSON(rNode->name) << "\","
-                     << "\"category\":\"" << escapeJSON(rNode->category) << "\","
-                     << "\"city\":\"" << escapeJSON(rNode->city) << "\","
-                     << "\"max_discount\":" << highestPct << ","
-                     << "\"deal_count\":" << dealCount << ","
-                     << "\"deals\":[" << dealsStream.str() << "]"
-                     << "}";
+        if (groupedCards.empty()) return;
 
-            // Insert into Binary Search Tree keyed by highestPct
-            bst.insert(highestPct, restJSON.str());
+        // ---- PASS 2: serialize one JSON deal object per group ----
+        ostringstream dealsStream;
+        bool firstDeal = true;
+        int dealCount = 0;
+        int highestPct = 0;
+
+        for (auto& kv : groupedCards) {
+            const string& groupKey = kv.first;
+            vector<string>& cardNames = kv.second;
+            CardDealNode* meta = groupMeta[groupKey];
+
+            if (meta->discountPct > highestPct) highestPct = meta->discountPct;
+            dealCount++;
+
+            if (!firstDeal) dealsStream << ",";
+            firstDeal = false;
+
+            // Build the cards[] JSON array — deduplicated
+            vector<string> seen;
+            ostringstream cardsArr;
+            cardsArr << "[";
+            bool firstCard = true;
+            for (const string& cn : cardNames) {
+                // Simple dedup: only add if not already seen (case-insensitive)
+                bool dup = false;
+                for (const string& s : seen) {
+                    if (s == cn) { dup = true; break; }
+                }
+                if (!dup) {
+                    seen.push_back(cn);
+                    if (!firstCard) cardsArr << ",";
+                    firstCard = false;
+                    cardsArr << "\"" << escapeJSON(cn) << "\"";
+                }
+            }
+            cardsArr << "]";
+
+            dealsStream << "{"
+                        << "\"provider\":\"" << escapeJSON(meta->provider) << "\","
+                        << "\"provider_type\":\"" << escapeJSON(meta->providerType) << "\","
+                        << "\"cards\":" << cardsArr.str() << ","
+                        << "\"discount_pct\":" << meta->discountPct << ","
+                        << "\"max_cap_pkr\":" << meta->maxCapPKR << ","
+                        << "\"min_spend_pkr\":" << meta->minSpendPKR << ","
+                        << "\"valid_days\":\"" << escapeJSON(meta->validDays) << "\","
+                        << "\"terms\":\"" << escapeJSON(meta->terms) << "\""
+                        << "}";
         }
+
+        matchedRestaurantsCount++;
+        ostringstream restJSON;
+        restJSON << "{"
+                 << "\"restaurant\":\"" << escapeJSON(rNode->name) << "\","
+                 << "\"category\":\"" << escapeJSON(rNode->category) << "\","
+                 << "\"city\":\"" << escapeJSON(rNode->city) << "\","
+                 << "\"max_discount\":" << highestPct << ","
+                 << "\"deal_count\":" << dealCount << ","
+                 << "\"deals\":[" << dealsStream.str() << "]"
+                 << "}";
+
+        bst.insert(highestPct, restJSON.str());
     }
 
 public:
@@ -330,7 +383,7 @@ public:
         for (int i = 0; i < MAX_RESTAURANTS; ++i) sortedDirectory[i] = nullptr;
     }
 
-    RestaurantNode* getOrCreateRestaurant(const std::string& name, const std::string& category, const std::string& city) {
+    RestaurantNode* getOrCreateRestaurant(const string& name, const string& category, const string& city) {
         int bucketIdx = hashCity(city);
         RestaurantNode* curr = buckets[bucketIdx];
 
@@ -348,49 +401,67 @@ public:
         return newRest;
     }
 
-    int safeParseInt(const std::string& str, int fallback = 0) const {
+    int safeParseInt(const string& str, int fallback = 0) const {
         try {
             if (str.empty()) return fallback;
-            return std::stoi(str);
+            return stoi(str);
         } catch (...) {
             return fallback;
         }
     }
 
-    bool loadFromCSV(const std::string& filename) {
-        std::ifstream file(filename);
+    vector<string> parseCSVLine(const string& line) const {
+        vector<string> fields;
+        string field;
+        bool inQuotes = false;
+        for (size_t i = 0; i < line.size(); ++i) {
+            char c = line[i];
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.size() && line[i + 1] == '"') {
+                    field += '"';
+                    ++i;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                fields.push_back(field);
+                field.clear();
+            } else {
+                field += c;
+            }
+        }
+        fields.push_back(field);
+        return fields;
+    }
+
+    bool loadFromCSV(const string& filename) {
+        ifstream file(filename);
         if (!file.is_open()) return false;
 
-        std::string line;
-        std::getline(file, line); // Skip header
+        string line;
+        getline(file, line); // Skip header
 
         int dealRows = 0;
-        while (std::getline(file, line)) {
+        while (getline(file, line)) {
             if (line.empty()) continue;
 
             // Handle \r\n line endings on Windows
             if (!line.empty() && line.back() == '\r') line.pop_back();
 
-            std::stringstream ss(line);
-            std::string rest, cat, city, prov, pType, tier, pctStr, capStr, minStr, days, terms;
+            vector<string> cols = parseCSVLine(line);
+            if (cols.size() < 11) continue;
 
-            std::getline(ss, rest, ',');
-            std::getline(ss, cat, ',');
-            std::getline(ss, city, ',');
-            std::getline(ss, prov, ',');
-            std::getline(ss, pType, ',');
-            std::getline(ss, tier, ',');
-            std::getline(ss, pctStr, ',');
-            std::getline(ss, capStr, ',');
-            std::getline(ss, minStr, ',');
-            std::getline(ss, days, ',');
-            std::getline(ss, terms);
-
-            // Strip trailing \r and surrounding quotes from terms
-            if (!terms.empty() && terms.back() == '\r') terms.pop_back();
-            if (terms.size() >= 2 && terms.front() == '"' && terms.back() == '"') {
-                terms = terms.substr(1, terms.size() - 2);
-            }
+            string rest   = cols[0];
+            string cat    = cols[1];
+            string city   = cols[2];
+            string prov   = cols[3];
+            string pType  = cols[4];
+            string tier   = cols[5];
+            string pctStr = cols[6];
+            string capStr = cols[7];
+            string minStr = cols[8];
+            string days   = cols[9];
+            string terms  = cols[10];
 
             RestaurantNode* rNode = getOrCreateRestaurant(rest, cat, city);
             int pct = safeParseInt(pctStr, 0);
@@ -403,25 +474,25 @@ public:
         // Sort directory once after all restaurants are loaded: O(N log N)
         sortDirectory();
 
-        std::cout << "[DSA Engine] Loaded " << dealRows << " deals across "
-                  << totalRestaurants << " unique restaurants.\n";
-        std::cout << "[DSA Engine] Hash Table Buckets: " << TABLE_SIZE
-                  << " | Sorted Directory Size: " << totalRestaurants << "\n";
+        cout << "[DSA Engine] Loaded " << dealRows << " deals across "
+             << totalRestaurants << " unique restaurants." << endl;
+        cout << "[DSA Engine] Hash Table Buckets: " << TABLE_SIZE
+             << " | Sorted Directory Size: " << totalRestaurants << endl;
         return true;
     }
 
     // ========================================================================
     // DYNAMIC QUERY ROUTER: Picks the optimal Search Algorithm automatically!
     // ========================================================================
-    std::string executeSmartQuery(const std::string& cityFilter,
-                                  const std::string& providerFilter,
-                                  const std::string& cardFilter,
-                                  const std::string& restFilter,
-                                  const std::string& keywordSearch,
-                                  int minDiscountPct) {
+    string executeSmartQuery(const string& cityFilter,
+                             const string& providerFilter,
+                             const string& cardFilter,
+                             const string& restFilter,
+                             const string& keywordSearch,
+                             int minDiscountPct) {
         DiscountBST resultBST;
         int matchedCount = 0;
-        std::string activeSearchAlgo;
+        string activeSearchAlgo;
 
         // =====================================================================
         // CASE 1: User selected a specific Restaurant
@@ -432,8 +503,8 @@ public:
             int idx = binarySearchRestaurantFirstIndex(restFilter, comparisons);
 
             activeSearchAlgo = "Iterative Binary Search O(log N) on Sorted Array (" +
-                               std::to_string(comparisons) + " comparisons across " +
-                               std::to_string(totalRestaurants) + " restaurants)";
+                               to_string(comparisons) + " comparisons across " +
+                               to_string(totalRestaurants) + " restaurants)";
 
             // Walk forward from the found index to collect all entries with the same name
             // (a restaurant can appear in multiple cities)
@@ -452,7 +523,7 @@ public:
         // =====================================================================
         else if (!cityFilter.empty() && cityFilter != "All") {
             int bucketIdx = hashCity(cityFilter);
-            activeSearchAlgo = "Direct Hash Table Lookup O(1) [Bucket #" + std::to_string(bucketIdx) + "]";
+            activeSearchAlgo = "Direct Hash Table Lookup O(1) [Bucket #" + to_string(bucketIdx) + "]";
 
             if (!keywordSearch.empty()) {
                 activeSearchAlgo += " + Substring Linear Scan O(N*K)";
@@ -495,13 +566,13 @@ public:
 
         // Append BST sort/prune info
         if (minDiscountPct > 0) {
-            activeSearchAlgo += " + BST Range Pruning (>= " + std::to_string(minDiscountPct) + "% OFF)";
+            activeSearchAlgo += " + BST Range Pruning (>= " + to_string(minDiscountPct) + "% OFF)";
         } else {
             activeSearchAlgo += " + BST Reverse In-Order Sort (High->Low)";
         }
 
         // Build final JSON envelope containing telemetry + results + circular queue history
-        std::ostringstream response;
+        ostringstream response;
         response << "{"
                  << "\"algorithm_used\":\"" << escapeJSON(activeSearchAlgo) << "\","
                  << "\"matched_count\":" << matchedCount << ","
@@ -538,7 +609,7 @@ public:
 int main() {
     DiscountEngine engine;
     if (!engine.loadFromCSV("deals_data.csv")) {
-        std::cerr << "[Error] deals_data.csv missing! Run 'python scraper.py' first.\n";
+        cerr << "[Error] deals_data.csv missing! Run 'python scraper.py' first.\n";
         return 1;
     }
 
@@ -553,27 +624,27 @@ int main() {
 
     // GET /api/restaurants?city=...&provider=...&card=...&restaurant=...&q=...&min_pct=...
     svr.Get("/api/restaurants", [&](const httplib::Request& req, httplib::Response& res) {
-        std::string city = req.has_param("city") ? req.get_param_value("city") : "All";
-        std::string provider = req.has_param("provider") ? req.get_param_value("provider") : "All";
-        std::string card = req.has_param("card") ? req.get_param_value("card") : "All";
-        std::string restaurant = req.has_param("restaurant") ? req.get_param_value("restaurant") : "All";
-        std::string keyword = req.has_param("q") ? req.get_param_value("q") : "";
+        string city = req.has_param("city") ? req.get_param_value("city") : "All";
+        string provider = req.has_param("provider") ? req.get_param_value("provider") : "All";
+        string card = req.has_param("card") ? req.get_param_value("card") : "All";
+        string restaurant = req.has_param("restaurant") ? req.get_param_value("restaurant") : "All";
+        string keyword = req.has_param("q") ? req.get_param_value("q") : "";
         int minPct = 0;
         if (req.has_param("min_pct")) {
-            try { minPct = std::stoi(req.get_param_value("min_pct")); }
+            try { minPct = stoi(req.get_param_value("min_pct")); }
             catch (...) { minPct = 0; }
         }
 
-        std::string payload = engine.executeSmartQuery(city, provider, card, restaurant, keyword, minPct);
+        string payload = engine.executeSmartQuery(city, provider, card, restaurant, keyword, minPct);
         res.set_content(payload, "application/json");
     });
 
     // POST /api/scrape-live - Triggers live Playwright scraper and reloads data structures
     svr.Post("/api/scrape-live", [&](const httplib::Request&, httplib::Response& res) {
-        std::cout << "[C++ Server] Triggering live Python Playwright scraper...\n";
-        int status = std::system("python live_scraper.py");
+        cout << "[C++ Server] Triggering live Python Playwright scraper...\n";
+        int status = system("python live_scraper.py");
         if (status != 0) {
-            status = std::system("python3 live_scraper.py");
+            status = system("python3 live_scraper.py");
         }
         if (status == 0) {
             // Reload freshly scraped CSV into C++ Data Structures
@@ -587,13 +658,13 @@ int main() {
 
     // POST /api/reload - Re-run seeded Python scraper
     svr.Post("/api/reload", [&](const httplib::Request&, httplib::Response& res) {
-        int code = std::system("python scraper.py");
-        if (code != 0) code = std::system("python3 scraper.py");
+        int code = system("python scraper.py");
+        if (code != 0) code = system("python3 scraper.py");
         if (code == 0) {
             engine.clear();
             engine.loadFromCSV("deals_data.csv");
         }
-        res.set_content("{\"status\":\"reloaded\",\"code\":" + std::to_string(code) + "}", "application/json");
+        res.set_content("{\"status\":\"reloaded\",\"code\":" + to_string(code) + "}", "application/json");
     });
 
     // Health check endpoint for cloud orchestrators (Render, Railway, Fly.io, Kubernetes, AWS, etc.)
@@ -603,17 +674,20 @@ int main() {
 
     // Cloud deployment port: reads $PORT env var (standard on Render, Railway, Fly, Heroku, etc.)
     int port = 8080;
-    const char* envPort = std::getenv("PORT");
+    const char* envPort = getenv("PORT");
     if (envPort && *envPort) {
-        try { port = std::stoi(envPort); } catch (...) { port = 8080; }
+        try { port = stoi(envPort); } catch (...) { port = 8080; }
     }
 
-    std::cout << "==============================================================\n";
-    std::cout << " PakSaver Multi-DSA C++ Server Live at http://0.0.0.0:" << port << "\n";
-    std::cout << " Hash Table: 101 Buckets | Max Directory: 5000 Restaurants\n";
-    std::cout << " Data Structures: Hash Table | Linked List | BST | Queue\n";
-    std::cout << " Search Methods:  O(1) Hash | O(logN) Binary | O(N*K) Linear\n";
-    std::cout << "==============================================================\n";
-    svr.listen("0.0.0.0", port);
+    cout << "==============================================================" << endl;
+    cout << " PakSaver Multi-DSA C++ Server Live at http://localhost:" << port << endl;
+    cout << " Hash Table: 503 Buckets | Max Directory: 50000 Restaurants" << endl;
+    cout << " Data Structures: Hash Table | Linked List | BST | Queue" << endl;
+    cout << " Search Methods:  O(1) Hash | O(logN) Binary | O(N*K) Linear" << endl;
+    cout << "==============================================================" << endl;
+    if (!svr.listen("0.0.0.0", port)) {
+        cerr << "[Error] Server failed to start on port " << port << "! Port might already be in use." << endl;
+        return 1;
+    }
     return 0;
 }
