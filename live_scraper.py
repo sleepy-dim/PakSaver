@@ -393,10 +393,16 @@ def main():
         "card_tier", "discount_pct", "max_cap_pkr", "min_spend_pkr", "valid_days", "terms"
     ]
 
-    with open(CSV_FILE, mode="w", newline="", encoding="utf-8") as f:
+    if not final_rows:
+        print("[ERROR] No deals were collected; keeping the existing dataset.")
+        return 1
+
+    temp_csv_file = CSV_FILE + ".tmp"
+    with open(temp_csv_file, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
         writer.writerows(final_rows)
+    os.replace(temp_csv_file, CSV_FILE)
 
     cities_covered = set(r[2] for r in final_rows)
     banks_covered = set(r[3] for r in final_rows)

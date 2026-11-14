@@ -7,6 +7,11 @@
 #include <algorithm>
 #include <vector>
 #include <map>
+#include <chrono>
+#include <condition_variable>
+#include <ctime>
+#include <mutex>
+#include <thread>
 #include "httplib.h"
 
 using namespace std;
@@ -478,7 +483,7 @@ public:
              << totalRestaurants << " unique restaurants." << endl;
         cout << "[DSA Engine] Hash Table Buckets: " << TABLE_SIZE
              << " | Sorted Directory Size: " << totalRestaurants << endl;
-        return true;
+        return dealRows > 0;
     }
 
     // ========================================================================
@@ -598,20 +603,78 @@ public:
         totalRestaurants = 0;
     }
 
+    void swapWith(DiscountEngine& other) {
+        for (int i = 0; i < TABLE_SIZE; ++i) {
+            std::swap(buckets[i], other.buckets[i]);
+        }
+        for (int i = 0; i < MAX_RESTAURANTS; ++i) {
+            std::swap(sortedDirectory[i], other.sortedDirectory[i]);
+        }
+        std::swap(totalRestaurants, other.totalRestaurants);
+        std::swap(searchHistory, other.searchHistory);
+    }
+
     ~DiscountEngine() {
         clear();
     }
 };
 
+bool runPythonScript(const string& filename) {
+#ifdef _WIN32
+    int status = system(("python " + filename).c_str());
+    if (status != 0) status = system(("python3 " + filename).c_str());
+#else
+    int status = system(("python3 " + filename).c_str());
+    if (status != 0) status = system(("python " + filename).c_str());
+#endif
+    return status == 0;
+}
+
+bool refreshDeals(DiscountEngine& engine, mutex& engineMutex,
+                  mutex& refreshMutex, const string& scraper) {
+    lock_guard<mutex> refreshLock(refreshMutex);
+    if (!runPythonScript(scraper)) return false;
+
+    DiscountEngine replacement;
+    if (!replacement.loadFromCSV("deals_data.csv")) return false;
+
+    lock_guard<mutex> engineLock(engineMutex);
+    engine.swapWith(replacement);
+    return true;
+}
+
+time_t nextLocalMidnight() {
+    time_t now = time(nullptr);
+    tm localTime = {};
+#ifdef _WIN32
+    localtime_s(&localTime, &now);
+#else
+    localtime_r(&now, &localTime);
+#endif
+    localTime.tm_hour = 0;
+    localTime.tm_min = 0;
+    localTime.tm_sec = 0;
+    localTime.tm_mday += 1;
+    return mktime(&localTime);
+}
+
 // ============================================================================
 // HTTP SERVER ENTRYPOINT
 // ============================================================================
 int main() {
+    cout << "[Startup] Refreshing live bank deals..." << endl;
+    if (!runPythonScript("live_scraper.py")) {
+        cerr << "[Startup] Live scrape failed; loading the existing dataset." << endl;
+    }
+
     DiscountEngine engine;
     if (!engine.loadFromCSV("deals_data.csv")) {
-        cerr << "[Error] deals_data.csv missing! Run 'python scraper.py' first.\n";
+        cerr << "[Error] No usable deals found in deals_data.csv.\n";
         return 1;
     }
+
+    mutex engineMutex;
+    mutex refreshMutex;
 
     httplib::Server svr;
     svr.set_mount_point("/", "./public");
@@ -635,36 +698,30 @@ int main() {
             catch (...) { minPct = 0; }
         }
 
-        string payload = engine.executeSmartQuery(city, provider, card, restaurant, keyword, minPct);
+        string payload;
+        {
+            lock_guard<mutex> lock(engineMutex);
+            payload = engine.executeSmartQuery(city, provider, card, restaurant, keyword, minPct);
+        }
         res.set_content(payload, "application/json");
     });
 
-    // POST /api/scrape-live - Triggers live Playwright scraper and reloads data structures
     svr.Post("/api/scrape-live", [&](const httplib::Request&, httplib::Response& res) {
-        cout << "[C++ Server] Triggering live Python Playwright scraper...\n";
-        int status = system("python live_scraper.py");
-        if (status != 0) {
-            status = system("python3 live_scraper.py");
-        }
-        if (status == 0) {
-            // Reload freshly scraped CSV into C++ Data Structures
-            engine.clear();
-            engine.loadFromCSV("deals_data.csv");
-            res.set_content("{\"status\":\"success\",\"message\":\"Live bank data scraped and loaded into C++ Trie, Hash Table & Max-Heap!\"}", "application/json");
+        if (refreshDeals(engine, engineMutex, refreshMutex, "live_scraper.py")) {
+            res.set_content("{\"status\":\"success\",\"message\":\"Live bank deals refreshed successfully.\"}", "application/json");
         } else {
+            res.status = 500;
             res.set_content("{\"status\":\"error\",\"message\":\"Live scraper process failed or encountered an error.\"}", "application/json");
         }
     });
 
-    // POST /api/reload - Re-run seeded Python scraper
     svr.Post("/api/reload", [&](const httplib::Request&, httplib::Response& res) {
-        int code = system("python scraper.py");
-        if (code != 0) code = system("python3 scraper.py");
-        if (code == 0) {
-            engine.clear();
-            engine.loadFromCSV("deals_data.csv");
+        if (refreshDeals(engine, engineMutex, refreshMutex, "scraper.py")) {
+            res.set_content("{\"status\":\"success\",\"message\":\"Deals reloaded successfully.\"}", "application/json");
+        } else {
+            res.status = 500;
+            res.set_content("{\"status\":\"error\",\"message\":\"Scraper failed or produced no usable deals.\"}", "application/json");
         }
-        res.set_content("{\"status\":\"reloaded\",\"code\":" + to_string(code) + "}", "application/json");
     });
 
     // Health check endpoint for cloud orchestrators (Render, Railway, Fly.io, Kubernetes, AWS, etc.)
@@ -685,7 +742,33 @@ int main() {
     cout << " Data Structures: Hash Table | Linked List | BST | Queue" << endl;
     cout << " Search Methods:  O(1) Hash | O(logN) Binary | O(N*K) Linear" << endl;
     cout << "==============================================================" << endl;
-    if (!svr.listen("0.0.0.0", port)) {
+    mutex schedulerMutex;
+    condition_variable schedulerCv;
+    bool stopScheduler = false;
+    thread dailyRefresh([&]() {
+        unique_lock<mutex> lock(schedulerMutex);
+        while (!stopScheduler) {
+            auto nextRun = chrono::system_clock::from_time_t(nextLocalMidnight());
+            if (schedulerCv.wait_until(lock, nextRun, [&]() { return stopScheduler; })) break;
+
+            lock.unlock();
+            cout << "[Scheduler] Running daily live-deal refresh..." << endl;
+            if (!refreshDeals(engine, engineMutex, refreshMutex, "live_scraper.py")) {
+                cerr << "[Scheduler] Daily refresh failed; keeping the previous in-memory dataset." << endl;
+            }
+            lock.lock();
+        }
+    });
+
+    bool serverStarted = svr.listen("0.0.0.0", port);
+    {
+        lock_guard<mutex> lock(schedulerMutex);
+        stopScheduler = true;
+    }
+    schedulerCv.notify_one();
+    dailyRefresh.join();
+
+    if (!serverStarted) {
         cerr << "[Error] Server failed to start on port " << port << "! Port might already be in use." << endl;
         return 1;
     }

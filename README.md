@@ -54,10 +54,7 @@ PakSaver/
 
 ### Option 1: Native Windows (Pre-requisites: MSVC or g++, Python 3)
 ```powershell
-# 1. Scrape live bank deals
-python scraper.py
-
-# 2. Compile and run C++ server
+# Start the server; it refreshes live deals before serving requests
 run.bat
 ```
 Visit `http://localhost:8080/` in your browser.
@@ -66,6 +63,8 @@ Visit `http://localhost:8080/` in your browser.
 ```bash
 docker compose up --build
 ```
+
+The server refreshes live deals when it starts and every day at midnight. The **Sync Live Bank Deals** button also runs an immediate refresh. On native installs, midnight follows the computer's configured local timezone; Docker is configured for Pakistan Standard Time (`Asia/Karachi`). If a scrape fails or returns no usable deals, the last good dataset is kept. Scheduled refreshes run only while the server process is running, so deployments that sleep or stop overnight will not refresh until they start again.
 
 ---
 
