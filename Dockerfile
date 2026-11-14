@@ -24,12 +24,10 @@ WORKDIR /app
 # Copy application files
 COPY httplib.h server.cpp scraper.py live_scraper.py ./
 COPY public ./public
+COPY deals_data.csv ./
 
 # Compile C++ Multi-DSA HTTP Server with optimizations
 RUN g++ -std=c++17 -O3 server.cpp -o server -lpthread
-
-# Run initial 100% live bank scraper to populate deals_data.csv
-RUN python3 scraper.py || true
 
 # Healthcheck for cloud container orchestrators
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
