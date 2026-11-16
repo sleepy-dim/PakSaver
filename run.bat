@@ -1,5 +1,10 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+cd /d "%~dp0"
+if errorlevel 1 (
+    echo [ERROR] Could not switch to the PakSaver project folder.
+    exit /b 1
+)
 title PakSaver - Pakistani Bank Discounts Platform
 echo ======================================================================
 echo  PakSaver Multi-DSA Platform Launcher (Windows)
@@ -34,7 +39,27 @@ if not exist server.exe (
 REM Check if deals_data.csv exists
 if not exist deals_data.csv (
     echo [*] Pulling live nationwide banking deals...
-    python scraper.py
+    where python >nul 2>nul
+    if not errorlevel 1 (
+        python scraper.py
+    ) else (
+        where py >nul 2>nul
+        if not errorlevel 1 (
+            py -3 scraper.py
+        ) else (
+            echo [ERROR] Python 3 is required to create the missing deals_data.csv.
+            exit /b 1
+        )
+    )
+    if errorlevel 1 (
+        echo [ERROR] Deal scraping failed; the server cannot start without deals_data.csv.
+        exit /b 1
+    )
+)
+
+if not exist deals_data.csv (
+    echo [ERROR] deals_data.csv was not created. Check your internet connection and try again.
+    exit /b 1
 )
 
 echo [*] Starting PakSaver C++ Multi-DSA Backend on http://localhost:8080 ...

@@ -623,6 +623,7 @@ bool runPythonScript(const string& filename) {
 #ifdef _WIN32
     int status = system(("python " + filename).c_str());
     if (status != 0) status = system(("python3 " + filename).c_str());
+    if (status != 0) status = system(("py -3 " + filename).c_str());
 #else
     int status = system(("python3 " + filename).c_str());
     if (status != 0) status = system(("python " + filename).c_str());
